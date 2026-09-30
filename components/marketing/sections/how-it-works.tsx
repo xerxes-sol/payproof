@@ -5,16 +5,22 @@ const STEPS = [
     n: "01",
     title: "The seller shares their link.",
     body: "One PayProof link in the chat. Transfer, USSD, card, any bank, it all works, and you never change your account number again.",
+    image: "/images/step-seller.webp",
+    alt: "Shop owner checking his phone beside an open laptop in an electronics store",
   },
   {
     n: "02",
     title: "The buyer pays.",
     body: "They pay however they already pay. The money lands in the reserved account, and PayProof gets the confirmation directly.",
+    image: "/images/step-buyer.webp",
+    alt: "Young man at a desk checking a shopping app on his phone beside a laptop",
   },
   {
     n: "03",
     title: "The money waits for the doorbell.",
     body: "Product price and dispatch fee stay locked until the buyer confirms delivery. Then the seller gets paid, the rider gets paid.",
+    image: "/images/step-rider.webp",
+    alt: "Woman receiving a parcel from a delivery rider at her front door",
   },
 ] as const;
 
@@ -34,7 +40,17 @@ export function HowItWorks() {
           <ol className="grid gap-10 md:grid-cols-3 md:gap-12">
             {STEPS.map((step) => (
               <li key={step.n} className="pt-8">
-                <div className="font-heading text-4xl font-extrabold tracking-tight text-primary">
+                <div className="aspect-[3/2] overflow-hidden rounded-2xl">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={step.image}
+                    alt={step.alt}
+                    loading="lazy"
+                    draggable={false}
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+                <div className="mt-6 font-heading text-4xl font-extrabold tracking-tight text-primary">
                   {step.n}
                 </div>
                 <h3 className="mt-4 font-heading text-xl font-extrabold tracking-tight">
