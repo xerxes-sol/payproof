@@ -5,7 +5,6 @@ import { logger } from '@/lib/logger';
 import { authenticate, getRequestId } from '@/lib/auth';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { transition } from '@/lib/order-service';
-import { buildOrderDetail } from '@/lib/order-view';
 import {
   ok,
   badRequest,
@@ -63,7 +62,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     });
 
     logger.info('Order shipped', { orderId: order.id, requestId });
-    return ok(await buildOrderDetail(order.id));
+    return ok({ id: order.id, status: 'Shipped' });
   } catch (err) {
     return handleError(err, 'POST /api/v1/orders/[id]/ship', requestId);
   }

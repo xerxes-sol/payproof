@@ -22,13 +22,8 @@ const CreateSchema = z.object({
   dispatchFeeKobo: z.number().int().nonnegative('dispatchFeeKobo must be >= 0').optional(),
   deliveryDays: z.number().int().min(0, 'deliveryDays must be >= 0').optional(),
   stockQuantity: z.number().int().nonnegative().default(1),
-  description: z.string().trim().default(''),
-  imageUrl: z
-    .string()
-    .trim()
-    .optional()
-    .transform((v) => (!v ? undefined : v))
-    .pipe(z.string().url('imageUrl must be a valid URL').optional()),
+  description: z.string().trim().min(10, 'description must be at least 10 characters'),
+  imageUrl: z.string().url('imageUrl must be a valid URL').optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -37,23 +32,8 @@ export async function GET(request: NextRequest) {
   try {
     const sellerId = request.nextUrl.searchParams.get('seller_id');
 
-    if (sellerId) {
-      // D23: public storefront catalog (no auth required).
-      const products = await db.product.findMany({
-        where: { sellerId },
-        include: { seller: { select: { id: true, businessName: true } } },
-        orderBy: { createdAt: 'desc' },
-      });
-      return ok(products);
-    }
-
-    // R7: no anonymous unscoped listing; authed sellers see only their own inventory.
-    const claims = authenticate(request);
-    if (!claims) return unauthorized();
-    if (claims.role !== 'seller') return forbidden('Only sellers list inventory.');
-
     const products = await db.product.findMany({
-      where: { sellerId: String(claims.sub) },
+      where: sellerId ? { sellerId } : undefined,
       include: { seller: { select: { id: true, businessName: true } } },
       orderBy: { createdAt: 'desc' },
     });

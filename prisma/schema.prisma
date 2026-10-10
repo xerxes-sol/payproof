@@ -66,7 +66,6 @@ model Seller {
   products  Product[]
   orders    Order[]
   ratings   Rating[]
-  invoices  Invoice[]
 
   @@index([email])
   @@map("sellers")
@@ -190,43 +189,12 @@ model Rating {
   @@map("ratings")
 }
 
-// ── Invoices ──────────────────────────────────────────────────────────────────
-// Seller-created payment requests. MVP: single item, quantity 1 (multi-item
-// arrives with the invoice pay flow). Amounts snapshotted like orders;
-// orderId links the born order once paid.
-
-model Invoice {
-  id              String    @id
-  sellerId        String
-  status          String    @default("pending") // pending | paid | cancelled
-  customerName    String
-  customerContact String
-  note            String    @default("")
-  productId       String
-  productName     String
-  imageUrl        String?
-  unitPriceKobo   Int
-  dispatchFeeKobo Int
-  totalKobo       Int
-  orderId         String?   @unique
-  paidAt          DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  seller Seller @relation(fields: [sellerId], references: [id])
-
-  @@index([sellerId])
-  @@index([status])
-  @@map("invoices")
-}
-
 // ── Payments ──────────────────────────────────────────────────────────────────
 // One payment per order. reference is unique — the idempotency key.
 
 model Payment {
   id               String    @id @default(uuid())
   orderId          String    @unique
-  invoiceId        String?   // set when born from POST /invoices/:id/pay; webhook flips that invoice paid
   provider         String    @default("monnify")
   reference        String    @unique   // OUR ref (webhook lookup key, E12/E15)
   providerRef      String?             // Monnify's transactionReference (verify calls)

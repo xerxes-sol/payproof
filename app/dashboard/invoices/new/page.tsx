@@ -112,8 +112,6 @@ export default function NewInvoicePage() {
     const nextErrors: FieldErrors = {
       items: chosen.length === 0 ? "Pick at least one product for this invoice" : undefined,
       name: required(customerName, "Customer name"),
-      // The live API requires a contact (invoice is shared with them).
-      contact: required(contact, "Customer email or phone"),
     };
     setErrors(nextErrors);
     if (hasErrors(nextErrors)) return;
@@ -284,20 +282,13 @@ export default function NewInvoicePage() {
                 <FieldError>{errors.name}</FieldError>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="customer-contact">Email or phone</Label>
+                <Label htmlFor="customer-contact">Email or phone (optional)</Label>
                 <Input
                   id="customer-contact"
                   placeholder="chinedu@example.com"
                   value={contact}
-                  onChange={(e) => {
-                    setContact(e.target.value);
-                    if (errors.contact)
-                      setErrors((prev) => ({ ...prev, contact: undefined }));
-                  }}
-                  required
-                  aria-invalid={errors.contact ? true : undefined}
+                  onChange={(e) => setContact(e.target.value)}
                 />
-                <FieldError>{errors.contact}</FieldError>
               </div>
             </div>
 

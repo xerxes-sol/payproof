@@ -4,9 +4,8 @@ import { NextRequest } from 'next/server';
 import db from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { authenticate, getRequestId } from '@/lib/auth';
-import { checkRateLimit } from '@/lib/rate-limit';
 import { createReservedAccount, validateBankAccount } from '@/lib/monnify';
-import { ok, unauthorized, badRequest, handleError, tooManyRequestsResponse } from '@/lib/api-response';
+import { ok, unauthorized, badRequest, handleError } from '@/lib/api-response';
 import type { Prisma } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
@@ -34,7 +33,6 @@ export async function GET(request: NextRequest) {
           reservedAccountNumber: true,
           reservedBankName: true,
           reservedAccountName: true,
-          createdAt: true,
         },
       });
 
@@ -44,25 +42,14 @@ export async function GET(request: NextRequest) {
         return unauthorized('Session expired. Please log in again.');
       }
 
-      const reservedAccount = seller.reservedAccountNumber
-        ? {
-            account_number: seller.reservedAccountNumber,
-            bank_name: seller.reservedBankName,
-            account_name: seller.reservedAccountName,
-          }
-        : null;
-
       return ok({
         role: 'seller',
-        reserved_account: reservedAccount,
         profile: {
           id: seller.id,
           name: seller.name,
           businessName: seller.businessName,
-          business_name: seller.businessName,
           email: seller.email,
           phone: seller.phone,
-          created_at: seller.createdAt,
           settlement: seller.settlementNumber && seller.settlementBank
             ? { bankCode: seller.settlementBank, accountNumber: seller.settlementNumber }
             : null,
@@ -129,9 +116,6 @@ export async function PATCH(request: NextRequest) {
     if (!claims) {
       return unauthorized();
     }
-
-    const { allowed, retryAfterMs } = await checkRateLimit(`act:me:${claims.sub}`, 20, 60_000);
-    if (!allowed) return tooManyRequestsResponse(retryAfterMs);
 
     if (claims.role === 'buyer') {
       // A7 buyer branch: buyers may update name + phone only.
