@@ -5,14 +5,12 @@ import { logger } from '@/lib/logger';
 import { authenticate, getRequestId } from '@/lib/auth';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { transition } from '@/lib/order-service';
-import { buildOrderDetail } from '@/lib/order-view';
 import {
   ok,
   badRequest,
   unauthorized,
   forbidden,
   notFound,
-  conflict,
   handleError,
   tooManyRequestsResponse,
 } from '@/lib/api-response';
@@ -57,9 +55,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     const curIdx = order.trackingStatus ? LADDER.indexOf(order.trackingStatus as (typeof LADDER)[number]) : -1;
 
     if (nextIdx <= curIdx) { // forward-only: history must read as progress
-      return conflict(
+      return badRequest(
         `Tracking cannot move backwards (${order.trackingStatus} → ${parsed.data.tracking_status}).`,
-        'INVALID_TRANSITION',
       );
     }
 
@@ -84,7 +81,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       requestId,
     });
 
-    return ok(await buildOrderDetail(order.id));
+    return ok({ id: order.id, tracking_status: parsed.data.tracking_status });
   } catch (err) {
     return handleError(err, 'PATCH /api/v1/orders/[id]/tracking', requestId);
   }

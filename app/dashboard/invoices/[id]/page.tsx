@@ -207,29 +207,6 @@ export default function InvoiceDetailPage() {
         </div>
       )}
 
-      {invoice.status === "processing" && (
-        <div className="flex items-center gap-2.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-4 py-3 text-sm">
-          <IconSend className="size-4 shrink-0 text-sky-600 dark:text-sky-400" />
-          <p>
-            The customer started checkout.
-            {invoice.order_id ? (
-              <>
-                {" "}
-                <Link
-                  href={`/dashboard/orders/${invoice.order_id}`}
-                  className="font-medium text-primary hover:underline"
-                >
-                  View the order
-                </Link>{" "}
-                to track payment confirmation.
-              </>
-            ) : (
-              " Payment confirmation is pending."
-            )}
-          </p>
-        </div>
-      )}
-
       {invoice.status === "paid" && (
         <div className="flex items-center gap-2.5 rounded-lg border border-primary/40 bg-primary/10 px-4 py-3 text-sm">
           <IconCheck className="size-4 shrink-0 text-primary" />

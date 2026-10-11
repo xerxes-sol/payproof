@@ -10,15 +10,15 @@ function ProofCards() {
   return (
     <>
       <VisualPlaceholder
-        label="Photo"
+        src="/hero/storefront.png"
         className={cn(STRIP_HEIGHT, "aspect-[4/3]")}
       />
       <VisualPlaceholder
-        label="App screenshot"
+        src="/hero/app.png"
         className={cn(STRIP_HEIGHT, "aspect-[1/1]")}
       />
       <VisualPlaceholder
-        label="Dashboard screenshot"
+        src="/hero/dashboard.png"
         className={cn(STRIP_HEIGHT, "aspect-[16/10]")}
       />
     </>

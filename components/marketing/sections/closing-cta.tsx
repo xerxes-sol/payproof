@@ -39,14 +39,21 @@ export function ClosingCta() {
 
             <div className="relative hidden lg:block">
               <div className="relative h-full min-h-[380px]">
-                <div
-                  className={cn(
-                    "absolute top-16 bottom-0 left-0 right-0 flex items-center justify-center",
+                  <div
+                    className={cn(
+                      "absolute top-16 bottom-0 left-0 right-0 flex items-center justify-center",
                      "rounded-tl-2xl bg-black p-1 pb-0 pr-0",
                   )}
-                >
-                  <div className="bg-chart-1 w-full h-full rounded-tl-xl"></div>
-                </div>
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src="/images/cta-packing.webp"
+                      alt="Boutique owner packing a branded order while checking her phone"
+                      loading="lazy"
+                      draggable={false}
+                      className="h-full w-full rounded-tl-xl object-cover"
+                    />
+                  </div>
               </div>
             </div>
           </div>

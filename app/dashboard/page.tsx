@@ -18,6 +18,8 @@ import { ReputationBadge } from "@/components/reputation-badge";
 import { Amount } from "@/components/amount";
 import { IconPlus, IconPackage } from "@tabler/icons-react";
 import { useDashboardSession } from "@/components/dashboard/session-context";
+import { useDataSource } from "@/lib/api";
+import { DemoDataNotice } from "@/components/dashboard/demo-data-notice";
 import { BuyerHome } from "@/components/dashboard/buyer-home";
 import { toast } from "sonner";
 
@@ -95,6 +97,7 @@ function RecentInvoices({ invoices }: { invoices: MockInvoice[] | null }) {
 export default function DashboardPage() {
   const router = useRouter();
   const session = useDashboardSession();
+  const source = useDataSource();
   const [dashboard, setDashboard] = useState<SellerDashboard | null>(null);
   const [statsFailed, setStatsFailed] = useState(false);
   const [invoices, setInvoices] = useState<MockInvoice[] | null>(null);
@@ -248,7 +251,11 @@ export default function DashboardPage() {
             </Link>
           </div>
           <div className="pt-2">
-            <RecentInvoices invoices={invoices} />
+            {source === "live" ? (
+              <DemoDataNotice compact />
+            ) : (
+              <RecentInvoices invoices={invoices} />
+            )}
           </div>
         </section>
       </div>

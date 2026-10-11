@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import { NextRequest } from 'next/server';
 import db from '@/lib/db';
 import { logger } from '@/lib/logger';
@@ -21,22 +20,18 @@ export const dynamic = 'force-dynamic';
 
 const ACK = () => new Response('OK', { status: 200 });
 
-const EventDataSchema = z
-  .object({
-    transactionReference: z.string().min(1),
-    paymentReference: z.string().min(1),
-    amountPaid: z.union([z.string(), z.number()]).nullable().optional(),
-    paymentStatus: z.string().nullable().optional(),
-  })
-  .passthrough();
-
 export async function POST(request: NextRequest) {
   const requestId = getRequestId(request);
 
   let rawBody: string;
   let payload: {
     eventType?: string;
-    eventData?: unknown;
+    eventData?: {
+      transactionReference?: string;
+      paymentReference?: string;
+      amountPaid?: string | number;
+      [key: string]: unknown;
+    };
   };
 
   try {
@@ -57,22 +52,20 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const { eventType, eventData: rawEventData } = payload;
+  const { eventType, eventData } = payload;
 
   if (eventType !== 'SUCCESSFUL_TRANSACTION') {
     return ACK();
   }
 
-  const parsedEvent = EventDataSchema.safeParse(rawEventData);
-  if (!parsedEvent.success) {
-    logger.warn('Webhook: malformed eventData — ACK without processing', { requestId });
+  const paymentRef = eventData?.paymentReference;
+
+  const transactionRef = eventData?.transactionReference;
+
+  if (!paymentRef || !transactionRef) {
+    logger.error('Webhook: missing references in eventData', { eventData, requestId });
     return ACK();
   }
-  const eventData = parsedEvent.data;
-
-  const paymentRef = eventData.paymentReference;
-
-  const transactionRef = eventData.transactionReference;
 
   try {
     await db.webhookEvent.create({
@@ -107,10 +100,20 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Await processing before ACK: serverless freezes CPU after the response,
-  // so fire-and-forget orphans the claim and the payment is never recorded.
-  // Slower responses (~5s) beat lost money; duplicates converge via idempotency.
-  await handleNotification(String(paymentRef), String(transactionRef), requestId);
+  // ACK first: slow webhooks get retried by Monnify, so claim-then-respond
+  const processing = handleNotification(String(paymentRef), String(transactionRef), requestId);
+
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    processing.catch((err) => {
+      logger.error('Webhook: background processing failed', {
+        transactionRef,
+        err,
+        requestId,
+      });
+    });
+  } else {
+    await processing;
+  }
 
   return ACK();
 }
@@ -127,130 +130,113 @@ async function markProcessed(transactionRef: string) {
 }
 
 async function handleNotification(paymentRef: string, transactionRef: string, requestId: string) {
+
+  const order = await findOrderByReference(paymentRef);
+
+  if (!order) {
+    logger.warn('Webhook: no order for paymentReference', { paymentRef, transactionRef, requestId });
+    await markProcessed(transactionRef);
+    return;
+  }
+
+  if (order.status !== 'PendingPayment') {
+    logger.info('Webhook: order not pending — replay ignored', {
+      orderId: order.id,
+      status: order.status,
+      transactionRef,
+      requestId,
+    });
+    await markProcessed(transactionRef);
+    return;
+  }
+
+  if (!order.payments?.[0]?.providerRef) {
+    await db.payment
+      .update({ where: { reference: paymentRef }, data: { providerRef: transactionRef } })
+      .catch(() => {});
+  }
+
+  let verified: Awaited<ReturnType<typeof verifyTransaction>>;
   try {
-    const order = await findOrderByReference(paymentRef);
-
-    if (!order) {
-      logger.warn('Webhook: no order for paymentReference', { paymentRef, transactionRef, requestId });
-      await markProcessed(transactionRef);
-      return;
-    }
-
-    if (order.status !== 'PendingPayment') {
-      logger.info('Webhook: order not pending — replay ignored', {
-        orderId: order.id,
-        status: order.status,
-        transactionRef,
-        requestId,
-      });
-      await markProcessed(transactionRef);
-      return;
-    }
-
-    if (!order.payments?.[0]?.providerRef) {
-      await db.payment
-        .update({ where: { reference: paymentRef }, data: { providerRef: transactionRef } })
-        .catch(() => {});
-    }
-
-    let verified: Awaited<ReturnType<typeof verifyTransaction>>;
-    try {
-      verified = await verifyTransaction(transactionRef); // never trust the body: server-side truth only
-    } catch (err) {
-      logger.error('Webhook: verify call failed — claim removed for retry', {
-        orderId: order.id,
-        transactionRef,
-        err,
-        requestId,
-      });
-      await removeClaim(transactionRef);
-      return;
-    }
-
-    const isPaid = verified.paymentStatus === 'PAID';
-
-    if (!isPaid || verified.amountKobo !== order.totalKobo || verified.currency !== 'NGN') {
-      logger.warn('Webhook: PAYMENT_MISMATCH — order stays PendingPayment', {
-        orderId: order.id,
-        paymentStatus: verified.paymentStatus,
-        verifiedKobo: verified.amountKobo,
-        expectedKobo: order.totalKobo,
-        currency: verified.currency,
-        transactionRef,
-        requestId,
-      });
-      await db.orderEvent.create({
-        data: {
-          orderId: order.id,
-          fromStatus: 'PendingPayment',
-          toStatus: 'PendingPayment', // stay put but leave an audit trail
-          actor: 'system',
-          note: `PAYMENT_MISMATCH status=${verified.paymentStatus} amount=${verified.amountKobo} expected=${order.totalKobo}`,
-        },
-      });
-      await markProcessed(transactionRef);
-      return;
-    }
-
-    try {
-      await db.$transaction(async (tx) => {
-        await tx.payment.update({
-          where: { reference: paymentRef },
-          data: {
-            status: 'paid',
-            amountKobo: verified.amountKobo,
-            raw: verified.raw as object,
-            paidAt: verified.paidAt ? new Date(verified.paidAt) : new Date(),
-            verificationMode: 'live',
-          },
-        });
-
-        await decrementStock(order.productId, tx);
-
-      await transition(order.id, 'Paid', 'system', `Monnify ref ${transactionRef}`, tx);
-      await transition(order.id, 'AwaitingShipment', 'system', undefined, tx);
-
-      const paymentRow = await tx.payment.findFirst({ where: { reference: paymentRef } });
-      if (paymentRow?.invoiceId) {
-        await tx.invoice.update({
-          where: { id: paymentRow.invoiceId },
-          data: { status: 'paid', paidAt: new Date() },
-        });
-      }
-
-        const fraud = await runFraudCheck(order.sellerId, order.totalKobo);
-        await tx.order.update({
-          where: { id: order.id },
-          data: { fraudFlag: fraud as unknown as object },
-        });
-
-        await tx.webhookEvent.update({
-          where: { id: transactionRef },
-          data: { processed: true },
-        });
-      });
-
-      logger.info('Webhook: order Paid → AwaitingShipment', {
-        orderId: order.id,
-        transactionRef,
-        amountKobo: verified.amountKobo,
-        requestId,
-      });
-    } catch (err) {
-      logger.error('Webhook: atomic txn failed — claim removed for retry', {
-        orderId: order.id,
-        transactionRef,
-        err,
-        requestId,
-      });
-      await removeClaim(transactionRef);
-    }
+    verified = await verifyTransaction(transactionRef); // never trust the body: server-side truth only
   } catch (err) {
-    logger.error('Webhook: unexpected failure — marking processed to stop retry loop', {
+    logger.error('Webhook: verify call failed — claim removed for retry', {
+      orderId: order.id,
       transactionRef,
       err,
       requestId,
     });
+    await removeClaim(transactionRef);
+    return;
+  }
+
+  const isPaid = verified.paymentStatus === 'PAID';
+
+  if (!isPaid || verified.amountKobo !== order.totalKobo || verified.currency !== 'NGN') {    logger.warn('Webhook: PAYMENT_MISMATCH — order stays PendingPayment', {
+      orderId: order.id,
+      paymentStatus: verified.paymentStatus,
+      verifiedKobo: verified.amountKobo,
+      expectedKobo: order.totalKobo,
+      currency: verified.currency,
+      transactionRef,
+      requestId,
+    });
+    await db.orderEvent.create({
+      data: {
+        orderId: order.id,
+        fromStatus: 'PendingPayment',
+        toStatus: 'PendingPayment', // stay put but leave an audit trail
+        actor: 'system',
+        note: `PAYMENT_MISMATCH status=${verified.paymentStatus} amount=${verified.amountKobo} expected=${order.totalKobo}`,
+      },
+    });
     await markProcessed(transactionRef);
+    return;
+  }
+
+  try {
+    await db.$transaction(async (tx) => {
+      await tx.payment.update({
+        where: { reference: paymentRef },
+        data: {
+          status: 'paid',
+          amountKobo: verified.amountKobo,
+          raw: verified.raw as object,
+          paidAt: verified.paidAt ? new Date(verified.paidAt) : new Date(),
+          verificationMode: 'live',
+        },
+      });
+
+      await decrementStock(order.productId, tx);
+
+      await transition(order.id, 'Paid', 'system', `Monnify ref ${transactionRef}`, tx);
+      await transition(order.id, 'AwaitingShipment', 'system', undefined, tx);
+
+      const fraud = await runFraudCheck(order.sellerId, order.totalKobo);
+      await tx.order.update({
+        where: { id: order.id },
+        data: { fraudFlag: fraud as unknown as object },
+      });
+
+      await tx.webhookEvent.update({
+        where: { id: transactionRef },
+        data: { processed: true },
+      });
+    });
+
+    logger.info('Webhook: order Paid → AwaitingShipment', {
+      orderId: order.id,
+      transactionRef,
+      amountKobo: verified.amountKobo,
+      requestId,
+    });
+  } catch (err) {
+    logger.error('Webhook: atomic txn failed — claim removed for retry', {
+      orderId: order.id,
+      transactionRef,
+      err,
+      requestId,
+    });
+    await removeClaim(transactionRef);
   }
 }

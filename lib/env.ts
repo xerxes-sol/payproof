@@ -43,12 +43,6 @@ const schema = z.object({
     (v) => (v === '' ? undefined : v),
     z.string().min(1).optional(),
   ),
-  RESEND_API_KEY: z.preprocess(
-    (v) => (v === '' ? undefined : v),
-    z.string().min(1).optional(),
-  ),
-  OTP_FROM_EMAIL: z.string().email().default('noreply@payproof.ng'),
-  OTP_MODE: z.enum(['dev', 'live']).default('dev'),
 
   GEMINI_API_KEY: z.string().min(1, 'GEMINI_API_KEY is required'),
   GEMINI_MODEL: z.string().min(1).default('gemini-3.8-flash'), // config, not code: Google retires models without warning
@@ -70,21 +64,8 @@ const schema = z.object({
   NEXT_PUBLIC_APP_URL: z.string().url().default('http://localhost:3000'),
 });
 
-const schemaWithRefinement = schema.refine(
-  (data) => {
-    if (data.NODE_ENV === 'production' && data.OTP_MODE !== 'live') {
-      return false;
-    }
-    return true;
-  },
-  {
-    message: 'OTP_MODE must be "live" in production',
-    path: ['OTP_MODE'],
-  }
-);
-
 function parseEnv() {
-  const result = schemaWithRefinement.safeParse(process.env);
+  const result = schema.safeParse(process.env);
 
   if (!result.success) {
     const lines = result.error.issues.map(
